@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ADDRESS, DELIVERY_FROM, USER_ADDRESS, EMAIL, PHONE = range(5)
+ORDER, ADDRESS, DELIVERY_FROM, USER_ADDRESS, EMAIL, PHONE, CALC, WEIGHT, VOLUME, MONTHS = range(10)
 
 ONE, TWO = range(2)
 
@@ -24,11 +24,17 @@ ONE, TWO = range(2)
 def start(update, context):
     ''' Приветствие. Всю красотень от Юры вставить сюда  '''
 
-    user = update.message.from_user
-    logger.info('Пользователь %s начал разговор.', user.first_name)
-    context.bot.send_message(chat_id=update.effective_chat.id, 
-        text="Мы расширяем Ваше пространство хранения вещей")
+    welcome_message = "Прежде чем начнем, ознакомьтесь со списком разрешенных для хранения вещей, а также ответами на часто задаваемые вопросы."
+    permitted_url = "https://docs.google.com/document/d/1l8uWEVuQK_12AQtRFld_XOmEUy6c-2psFkMt9yW6dhE/edit?usp=sharing"
+    faq_url = "https://docs.google.com/document/d/1g9wJtZn0RY5mWnnCasIm_T-EQdvyhrP3FBC5BcZxSCk/edit?usp=sharing"
 
+    buttons = [[InlineKeyboardButton("Список разрешенных вещей", url=permitted_url),
+                InlineKeyboardButton("FAQ", url=faq_url),
+                InlineKeyboardButton("Я ознакомился(-ась)", callback_data="read_everything")]]
+
+    reply_markup = InlineKeyboardMarkup(buttons)
+    context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_message, reply_markup=reply_markup)
+    return ORDER
 
 def build_menu(buttons, n_cols,
                header_buttons=None,
@@ -43,20 +49,29 @@ def build_menu(buttons, n_cols,
     return menu
 
 
-def orderbox(update, _):
+def handle_callback_query(update, context):
+    query = update.callback_query
+    if query.data == "read_everything":
+        context.bot.answer_callback_query(callback_query_id=query.id)
+        context.bot.send_message(chat_id=query.message.chat_id, text="Пожалуйста, введите вес вашей посылки (в кг).")
+        return WEIGHT
+
+
+def orderbox(update, context):
     ''' Начинаем оформлять бокс. Список адресов хранения '''
 
-    user = update.message.from_user
-    logger.info('Пользователь %s решил оформить бокс', user.first_name)
-    button_list = []
-    for addr in adresses:
-        button_list.append(InlineKeyboardButton(addr,
-            callback_data=addr))
+    query = update.callback_query
+    if query.data == "read_everything":
+        button_list = []
+        for addr in adresses:
+            button_list.append(InlineKeyboardButton(addr,
+                callback_data=addr))
 
-    reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
-    update.message.reply_text('Пожалуйста, выберите адрес хранения:',
-        reply_markup=reply_markup)
-    return ADDRESS
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+        context.bot.send_message(chat_id=update.effective_chat.id,
+            text='Пожалуйста, выберите адрес хранения:',
+            reply_markup=reply_markup)
+        return ADDRESS
     
 
 def delivery_from_method(update, context):
@@ -135,14 +150,71 @@ def get_user_email(update, context):
     return PHONE
 
 
-def get_user_phone(update, _):
+def get_user_phone(update, context):
     ''' Сохраняем номер телефона и завершаем разговор'''
 
     user = update.message.from_user
     user_phone = update.message.text
     logger.info('Пользователь %s ввел телефон %s', user.first_name, user_phone)
-    update.message.reply_text('Благодарим за Ваш заказ')
-    return ConversationHandler.END
+    update.message.reply_text('Давайте рассчитаем примерную стоимость хранения')
+    context.bot.send_message(chat_id=update.effective_chat.id,
+        text='Пожалуйста, введите вес Ваших вещей (в кг.)')
+    return WEIGHT
+
+
+def handle_weight(update, context):
+    weight = update.message.text.strip()
+    if weight.isnumeric() and 0 < int(weight):
+        context.user_data['weight'] = int(weight)
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Пожалуйста, укажите объем вашей посылки (в м2).")
+        return VOLUME
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Недопустимый вес. Пожалуйста, введите положительное число, большее 0.")
+        return WEIGHT
+    
+
+def handle_volume(update, context):
+    volume = update.message.text.strip()
+    if volume.isnumeric() and 0 < int(volume):
+        context.user_data['volume'] = int(volume)
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Пожалуйста, укажите сколько месяцев вы хотите хранить посылку.")
+        return MONTHS
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Недопустимый объем. Пожалуйста, введите положительное число, большее 0.")
+        return VOLUME
+    
+
+def handle_months(update, context):
+    months = update.message.text.strip()
+    if months.isnumeric() and 0 < int(months) <= 24:
+        context.user_data['months'] = int(months)
+
+        order_weight = context.user_data['weight']
+        order_volume = context.user_data['volume']
+        order_cost = calculate_the_order_cost(order_weight, order_volume, int(months))
+
+        order_cost = round(order_cost)
+        if order_cost is not None:
+            context.bot.send_message(chat_id=update.effective_chat.id,
+                                     text=f"Стоимость хранения вашей посылки составляет: {order_cost} рублей.")
+        else:
+            context.bot.send_message(chat_id=update.effective_chat.id,
+                                     text="Извините, не удалось рассчитать стоимость хранения. Пожалуйста, проверьте правильность введенных данных.")
+
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Спасибо! Заказ создан.")
+        return ConversationHandler.END
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id, text="Введите количество месяцев (до 24).")
+        return MONTHS
+
+
+def handle_invalid_input(update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Неверный ввод. Пожалуйста, попробуйте снова.")
+    return WEIGHT
 
 
 def ask_again(update, context):
@@ -152,6 +224,39 @@ def ask_again(update, context):
         text='Вы ввели не корректные данные. Попробуйте еще раз ввести e-mail')
     print(context.matches)
     return EMAIL
+
+
+def calculate_the_order_cost(order_weight, order_volume, months):
+    order_cost = 0
+    initial_price = 1500
+
+    if 0 < order_weight < 10:
+        order_cost += initial_price
+    elif 10 <= order_weight < 25:
+        order_cost += initial_price * 1.2
+    elif 25 <= order_weight < 40:
+        order_cost += initial_price * 1.4
+    elif 40 <= order_weight < 70:
+        order_cost += initial_price * 1.6
+    elif 70 <= order_weight < 100:
+        order_cost += initial_price * 1.8
+    elif order_weight >= 100:
+        order_cost += initial_price * 2
+
+    if 0 < order_volume < 3:
+        order_cost *= 2
+    elif 3 <= order_volume < 7:
+        order_cost *= 2.2
+    elif 7 <= order_volume < 10:
+        order_cost *= 2.4
+    elif 10 <= order_volume < 13:
+        order_cost *= 2.6
+    elif 13 <= order_volume < 17:
+        order_cost *= 2.8
+    elif 17 <= order_volume:
+        order_cost *= 3
+
+    return order_cost * months
 
 
 adresses = ['Адрес 1', 'Адрес 2', 'Адрес 3']
@@ -165,18 +270,23 @@ def main():
 
     app = updater.dispatcher
 
-    app.add_handler(CommandHandler('start', start))
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('orderbox', orderbox)],
+        entry_points=[CommandHandler('start', start)],
         states = {
+            ORDER: [CallbackQueryHandler(orderbox)],
             ADDRESS: [CallbackQueryHandler(delivery_from_method)],
             DELIVERY_FROM: [CallbackQueryHandler(pantry_delivery, pattern='^' + str(TWO) + '$'),
                             CallbackQueryHandler(user_delivery, pattern='^' + str(ONE) + '$')],
             USER_ADDRESS: [MessageHandler(None, get_user_address)],
             EMAIL: [MessageHandler(Filters.regex('@'+'.'), get_user_email)],
-            PHONE: [MessageHandler(Filters.regex('[0-9]'), get_user_phone)]
+            PHONE: [MessageHandler(Filters.regex('[0-9]'), get_user_phone)],
+            CALC: [CallbackQueryHandler(handle_callback_query)],
+            WEIGHT: [MessageHandler(Filters.text & ~Filters.command, handle_weight)],
+            VOLUME: [MessageHandler(Filters.text & ~Filters.command, handle_volume)],
+            MONTHS: [MessageHandler(Filters.text & ~Filters.command, handle_months)],
         },
-        fallbacks = [MessageHandler(Filters.regex('@|.'), ask_again)]
+        fallbacks = [MessageHandler(Filters.regex('@|.'), ask_again),
+                    MessageHandler(Filters.command, handle_invalid_input)]
     )
     app.add_handler(conv_handler)
 
