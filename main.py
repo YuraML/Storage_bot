@@ -1,6 +1,9 @@
-import logging
+import os
+import telegram
 
+from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from telegram.ext import (
     Updater,
     CommandHandler,
@@ -24,6 +27,47 @@ ONE, TWO = range(2)
 def start(update, context):
     ''' Приветствие. Всю красотень от Юры вставить сюда  '''
 
+
+from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, Filters
+
+WEIGHT, VOLUME, MONTHS = range(3)
+
+
+def calculate_the_order_cost(order_weight, order_volume, months):
+    order_cost = 0
+    initial_price = 1500
+
+    if 0 < order_weight < 10:
+        order_cost += initial_price
+    elif 10 <= order_weight < 25:
+        order_cost += initial_price * 1.2
+    elif 25 <= order_weight < 40:
+        order_cost += initial_price * 1.4
+    elif 40 <= order_weight < 70:
+        order_cost += initial_price * 1.6
+    elif 70 <= order_weight < 100:
+        order_cost += initial_price * 1.8
+    elif order_weight >= 100:
+        order_cost += initial_price * 2
+
+    if 0 < order_volume < 3:
+        order_cost *= 2
+    elif 3 <= order_volume < 7:
+        order_cost *= 2.2
+    elif 7 <= order_volume < 10:
+        order_cost *= 2.4
+    elif 10 <= order_volume < 13:
+        order_cost *= 2.6
+    elif 13 <= order_volume < 17:
+        order_cost *= 2.8
+    elif 17 <= order_volume:
+        order_cost *= 3
+
+    return order_cost * months
+
+
+def start_bot(update, context):
+
     welcome_message = "Прежде чем начнем, ознакомьтесь со списком разрешенных для хранения вещей, а также ответами на часто задаваемые вопросы."
     permitted_url = "https://docs.google.com/document/d/1l8uWEVuQK_12AQtRFld_XOmEUy6c-2psFkMt9yW6dhE/edit?usp=sharing"
     faq_url = "https://docs.google.com/document/d/1g9wJtZn0RY5mWnnCasIm_T-EQdvyhrP3FBC5BcZxSCk/edit?usp=sharing"
@@ -34,6 +78,7 @@ def start(update, context):
 
     reply_markup = InlineKeyboardMarkup(buttons)
     context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_message, reply_markup=reply_markup)
+
     return ORDER
 
 def build_menu(buttons, n_cols,
@@ -77,30 +122,27 @@ def orderbox(update, context):
 def delivery_from_method(update, context):
     ''' Сохраняем выбранный адрес хранения и спрашиваем о доставке '''
 
+
+
+
+def handle_callback_query(update, context):
+
     query = update.callback_query
-    variant = query.data
-    query.answer()
-    button_list = [
-        InlineKeyboardButton('Я сам привезу вещи',
-            callback_data=str(ONE)),
-        InlineKeyboardButton('Мы вывезем вещи',
-            callback_data=str(TWO)),
-    ]
-    reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
-    query.edit_message_text(text=f"Вы выбрали адрес хранения: {variant}")
-
-    context.bot.send_message(chat_id=update.effective_chat.id, text="Мы \
-        предлагаем бесплатную доставку Ваших вещей из дома на хранение. \
-        Хотите воспользоваться?", reply_markup=reply_markup)
-    return DELIVERY_FROM
+    if query.data == "read_everything":
+        context.bot.answer_callback_query(callback_query_id=query.id)
+        context.bot.send_message(chat_id=query.message.chat_id, text="Пожалуйста, введите вес вашей посылки (в кг).")
+        return WEIGHT
 
 
-def format_delivery_method(method):
-    ''' Представление выбора доставки в удобочитаемый вид '''
-
-    if int(method):
-        variant = 'самостоятельную доставку'
+def handle_weight(update, context):
+    weight = update.message.text.strip()
+    if weight.isnumeric() and 0 < int(weight):
+        context.user_data['weight'] = int(weight)
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Пожалуйста, укажите объем вашей посылки (в м2).")
+        return VOLUME
     else:
+
         variant = 'наши услуги по доставке'
     return variant
 
@@ -175,6 +217,12 @@ def handle_weight(update, context):
         return WEIGHT
     
 
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Недопустимый вес. Пожалуйста, введите положительное число, большее 0.")
+        return WEIGHT
+
+
+
 def handle_volume(update, context):
     volume = update.message.text.strip()
     if volume.isnumeric() and 0 < int(volume):
@@ -186,7 +234,7 @@ def handle_volume(update, context):
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text="Недопустимый объем. Пожалуйста, введите положительное число, большее 0.")
         return VOLUME
-    
+
 
 def handle_months(update, context):
     months = update.message.text.strip()
@@ -212,18 +260,17 @@ def handle_months(update, context):
         return MONTHS
 
 
+
 def handle_invalid_input(update, context):
     context.bot.send_message(chat_id=update.effective_chat.id, text="Неверный ввод. Пожалуйста, попробуйте снова.")
     return WEIGHT
 
 
-def ask_again(update, context):
-    ''' Повторный запрос данных '''
-    
-    context.bot.send_message(chat_id=update.effective_chat.id,
-        text='Вы ввели не корректные данные. Попробуйте еще раз ввести e-mail')
-    print(context.matches)
-    return EMAIL
+
+def handle_invalid_input(update, context):
+    context.bot.send_message(chat_id=update.effective_chat.id, text="Неверный ввод. Пожалуйста, попробуйте снова.")
+    return WEIGHT
+
 
 
 def calculate_the_order_cost(order_weight, order_volume, months):
@@ -262,6 +309,19 @@ def calculate_the_order_cost(order_weight, order_volume, months):
 adresses = ['Адрес 1', 'Адрес 2', 'Адрес 3']
 SELECTED_ADDRESS = list(range(len(adresses)))
 
+def main():
+    load_dotenv()
+    bot = telegram.Bot(token=os.environ['TOKEN'])
+    updater = Updater(bot=bot, use_context=True)
+
+
+    conversation_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_callback_query)],
+        states={
+            WEIGHT: [MessageHandler(Filters.text & ~Filters.command, handle_weight)],
+            VOLUME: [MessageHandler(Filters.text & ~Filters.command, handle_volume)],
+            MONTHS: [MessageHandler(Filters.text & ~Filters.command, handle_months)]
+
 
 def main():
     TOKEN = '6265890695:AAEFXFkuGxpElm_qaodxgRGSGg_UYud2vkg'
@@ -287,11 +347,19 @@ def main():
         },
         fallbacks = [MessageHandler(Filters.regex('@|.'), ask_again),
                     MessageHandler(Filters.command, handle_invalid_input)]
+
+        },
+        fallbacks=[MessageHandler(Filters.command, handle_invalid_input)]
+
     )
-    app.add_handler(conv_handler)
+
+    dispatcher = updater.dispatcher
+    start_handler = CommandHandler('start', start_bot)
+    dispatcher.add_handler(start_handler)
+
+    dispatcher.add_handler(conversation_handler)
 
     updater.start_polling()
-    updater.idle()
 
 
 if __name__ == '__main__':
