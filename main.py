@@ -24,8 +24,6 @@ def calculate_the_order_cost(order_weight, order_volume, months):
         order_cost += initial_price * 1.8
     elif order_weight >= 100:
         order_cost += initial_price * 2
-    else:
-        return None
 
     if 0 < order_volume < 3:
         order_cost *= 2
@@ -37,10 +35,8 @@ def calculate_the_order_cost(order_weight, order_volume, months):
         order_cost *= 2.6
     elif 13 <= order_volume < 17:
         order_cost *= 2.8
-    elif 17 <= order_volume < 20:
+    elif 17 <= order_volume:
         order_cost *= 3
-    else:
-        return None
 
     return order_cost * months
 
