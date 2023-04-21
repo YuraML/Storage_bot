@@ -158,7 +158,7 @@ adresses = ['Адрес 1', 'Адрес 2', 'Адрес 3']
 SELECTED_ADDRESS = list(range(len(adresses)))
 
 
-if __name__ == '__main__':
+def main():
     TOKEN = '6265890695:AAEFXFkuGxpElm_qaodxgRGSGg_UYud2vkg'
 
     updater = Updater(token=TOKEN)
@@ -182,3 +182,7 @@ if __name__ == '__main__':
 
     updater.start_polling()
     updater.idle()
+
+
+if __name__ == '__main__':
+    main()
