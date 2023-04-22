@@ -1,4 +1,9 @@
 import logging
+import os
+import re
+
+from dotenv import load_dotenv
+
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -7,7 +12,7 @@ from telegram.ext import (
     CallbackQueryHandler,
     ConversationHandler,
     Filters,
-    MessageHandler, Job
+    MessageHandler
 )
 
 logging.basicConfig(
@@ -15,7 +20,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-ORDER, ADDRESS, DELIVERY_FROM, USER_ADDRESS, EMAIL, PHONE, CALC, WEIGHT, VOLUME, MONTHS = range(10)
+ADDRESS, DELIVERY_FROM, USER_ADDRESS, EMAIL, PHONE, CALC, WEIGHT, DELIVERY_TO, \
+    VOLUME, MONTHS, CHOICE, HANDL_CHOICE, DETAIL, FETCH, ADDRESS_TO, \
+    PERSONAL = range(16)
 
 ONE, TWO = range(2)
 
@@ -33,7 +40,83 @@ def start(update, context):
 
     reply_markup = InlineKeyboardMarkup(buttons)
     context.bot.send_message(chat_id=update.effective_chat.id, text=welcome_message, reply_markup=reply_markup)
-    return ORDER
+    return CHOICE
+
+
+def get_user_choice(update, _):
+    ''' Выбор действия пользователем '''
+
+    query = update.callback_query
+    if query.data == "read_everything":
+        button_list = [
+            InlineKeyboardButton('Оформить заказ', callback_data='orderbox'),
+            InlineKeyboardButton('Список действующих боксов', callback_data='user_boxes'),
+            InlineKeyboardButton('Выход', callback_data='exit'),
+        ]
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+        query.edit_message_text(text='Выберите действие', reply_markup=reply_markup)
+        return HANDL_CHOICE
+
+
+def personal_data_consent(update, context):
+    query = update.callback_query
+    user = query.from_user
+    logger.info(f'Пользователь %s на соглашение о перс.данных ответил %s',
+                user.first_name, query.data)
+    if query.data == 'no':
+        query.edit_message_text(text='Приятно было с Вами пообщаться. До свидания.')
+        return ConversationHandler.END
+    elif query.data == 'yes':
+        button_list = []
+        for addr in adresses:
+            button_list.append(InlineKeyboardButton(addr,
+                                                    callback_data=addr))
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+        query.edit_message_text(text='Пожалуйста, выберите адрес хранения:',
+                                reply_markup=reply_markup)
+        return ADDRESS
+
+
+def handle_choice(update, context):
+    ''' Начинаем оформлять заказ либо смотреть список активных заказов '''
+
+    query = update.callback_query
+    user = query.from_user
+    if query.data == 'orderbox':
+        query = update.callback_query
+        text = '''Настоящим подтверждаю, что я ознакомлен и согласен с условиями Политики \
+        в отношении обработки персональных данных. Настоящим я даю разрешение \
+        ООО "Кладовка" (далее "Кладовка") в целях информирования об услугах, заключения \
+        и исполнения договора предоставления услуг обрабатывать - собирать, записывать, \
+        хранить, уточнять, извлекать, использовать, удалять, уничтожать - мои персональные \
+        данные: номер телефона, адрес электронной почты и почтовый адрес. Также я разрешаю \
+        "Кладовке" в целях информирования осуществлять обработку вышеперечисленных \
+        персональных данных и направлять на указанный мною адрес электронной почты \
+        и/или на номер мобильного телефона, а также с помощью системы мгновенного \
+        обмена сообщениями через Интернет информацию об услугах "Кладовки" и ее \
+        партнеров. Согласие может быть отозвано мною в любой момент путем направления \
+        письменного уведомления по адресу "Кладовки".'''
+        button_list = [
+            InlineKeyboardButton('Согласен', callback_data='yes'),
+            InlineKeyboardButton('Не согласен', callback_data='no'),
+        ]
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+        query.edit_message_text(text=text, reply_markup=reply_markup)
+        return PERSONAL
+    elif query.data == 'user_boxes':
+        button_list = []
+        boxes = ['Box 1', 'Box 2', 'Box 3']
+        for box in boxes:
+            button_list.append(InlineKeyboardButton(box,
+                                                    callback_data=box))
+        button_list.append(InlineKeyboardButton('Назад', callback_data='back'))
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=3))
+        query.edit_message_text(text='Ваши активные заказы',
+                                reply_markup=reply_markup)
+        return DETAIL
+    elif query.data == 'exit':
+        query.edit_message_text(text='Приятно было пообщаться с Вами')
+        return ConversationHandler.END
 
 
 def build_menu(buttons, n_cols,
@@ -57,21 +140,78 @@ def handle_callback_query(update, context):
         return WEIGHT
 
 
-def orderbox(update, context):
-    ''' Начинаем оформлять бокс. Список адресов хранения '''
-
+def show_detail(update, context):
+    '''
+    Здесь надо будет нарисовать в сообщении что-то типа:
+    Апельсины в бочках,
+    адрес такой-то, оплачено хранение до такого-то
+    '''
     query = update.callback_query
-    if query.data == "read_everything":
-        button_list = []
-        for addr in adresses:
-            button_list.append(InlineKeyboardButton(addr,
-                                                    callback_data=addr))
-
+    user = query.from_user
+    if query.data == 'back':
+        button_list = [
+            InlineKeyboardButton('Оформить заказ', callback_data='orderbox'),
+            InlineKeyboardButton('Список действующих боксов', callback_data='user_boxes'),
+            InlineKeyboardButton('Выход', callback_data='exit'),
+        ]
         reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
-        context.bot.send_message(chat_id=update.effective_chat.id,
-                                 text='Пожалуйста, выберите адрес хранения:',
-                                 reply_markup=reply_markup)
-        return ADDRESS
+        query.edit_message_text(text='Выберите действие', reply_markup=reply_markup)
+        return HANDL_CHOICE
+    lable = 'Апельсины в бочках'
+    addr = 'Адрес на Кудыкиной горе'
+    end_date = '31.12.2024'
+    button_list = [
+        InlineKeyboardButton('Хочу забрать вещи', callback_data='fetch'),
+        InlineKeyboardButton('Назад', callback_data='cancel')
+    ]
+    reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+    query.edit_message_text(
+        text=f'{lable}\nАдрес склада: {addr}\nХранение до: {end_date}'
+    )
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text='Храним дальше?', reply_markup=reply_markup)
+    return FETCH
+
+
+def fetch(update, _):
+    query = update.callback_query
+    if query.data == 'cancel':
+        button_list = []
+        boxes = ['Box 1', 'Box 2', 'Box 3']
+        for box in boxes:
+            button_list.append(InlineKeyboardButton(box,
+                                                    callback_data=box))
+        button_list.append(InlineKeyboardButton('Назад', callback_data='back'))
+        reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=3))
+        query.edit_message_text(text='Ваши активные заказы',
+                                reply_markup=reply_markup)
+        return DETAIL
+    button_list = [
+        InlineKeyboardButton('Нет, я заберу свои вещи', callback_data='self'),
+        InlineKeyboardButton('Привезите мне вещи', callback_data='delivery_to'),
+    ]
+    reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=2))
+    query.edit_message_text(text='Можем предложить Вам доставку вещей', reply_markup=reply_markup)
+    return DELIVERY_TO
+
+
+def delivery_to_address(update, _):
+    query = update.callback_query
+    if query.data == 'self':
+        query.edit_message_text(text='Можете забрать вещи с 8-00 до 22-00. Было приятно работать с Вами.')
+        return ConversationHandler.END
+    elif query.data == 'delivery_to':
+        query.edit_message_text(text='Укажите, пожалуйста, адрес, куда необходимо доставить вещи')
+        return ADDRESS_TO
+
+
+def get_address_to(update, context):
+    ''' Сохраняем адрес доставки вещей '''
+
+    address_to = update.message.text
+    context.bot.send_message(chat_id=update.effective_chat.id,
+                             text='Мы свяжемся с Вами для уточнения времени доставки. Благодарим за использование наших услуг.')
+    return ConversationHandler.END
 
 
 def delivery_from_method(update, context):
@@ -117,7 +257,7 @@ def pantry_delivery(update, context):
     return USER_ADDRESS
 
 
-def get_user_address(update, context):
+def get_user_address(update, _):
     ''' Сохраняем адрес и спрашиваем e-mail '''
 
     user = update.message.from_user
@@ -145,9 +285,12 @@ def get_user_email(update, context):
 
     user = update.message.from_user
     user_email = update.message.text
-    logger.info('Пользователь %s ввел e-mail %s', user.first_name, user_email)
-    update.message.reply_text('Укажите свой номер телефона')
-    return PHONE
+    if re.search(r'@', user_email) and re.search(r'.', user_email):
+        logger.info('Пользователь %s ввел e-mail %s', user.first_name, user_email)
+        update.message.reply_text('Укажите свой номер телефона')
+        return PHONE
+    update.message.reply_text('Вы ввели некорректные данные. Попробуйте еще раз')
+    return EMAIL
 
 
 def get_user_phone(update, context):
@@ -205,7 +348,8 @@ def handle_months(update, context):
             context.bot.send_message(chat_id=update.effective_chat.id,
                                      text="Извините, не удалось рассчитать стоимость хранения. Пожалуйста, проверьте правильность введенных данных.")
 
-        context.bot.send_message(chat_id=update.effective_chat.id, text="Спасибо! Заказ создан.")
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="Заказ создан. Мы свяжемся с Вами для уточнения деталей. Благодарим за Ваш выбор!")
         return ConversationHandler.END
     else:
         context.bot.send_message(chat_id=update.effective_chat.id, text="Введите количество месяцев (до 24).")
@@ -221,9 +365,9 @@ def ask_again(update, context):
     ''' Повторный запрос данных '''
 
     context.bot.send_message(chat_id=update.effective_chat.id,
-                             text='Вы ввели не корректные данные. Попробуйте еще раз ввести e-mail')
+                             text='Вы ввели не корректные данные. Попробуйте еще раз')
     print(context.matches)
-    return EMAIL
+    return PHONE
 
 
 def calculate_the_order_cost(order_weight, order_volume, months):
@@ -264,7 +408,8 @@ SELECTED_ADDRESS = list(range(len(adresses)))
 
 
 def main():
-    TOKEN = '6265890695:AAEFXFkuGxpElm_qaodxgRGSGg_UYud2vkg'
+    load_dotenv()
+    TOKEN = os.environ['TOKEN']
 
     updater = Updater(token=TOKEN)
 
@@ -273,17 +418,23 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
-            ORDER: [CallbackQueryHandler(orderbox)],
+            PERSONAL: [CallbackQueryHandler(personal_data_consent)],
+            CHOICE: [CallbackQueryHandler(get_user_choice)],
+            HANDL_CHOICE: [CallbackQueryHandler(handle_choice)],
+            DETAIL: [CallbackQueryHandler(show_detail)],
             ADDRESS: [CallbackQueryHandler(delivery_from_method)],
             DELIVERY_FROM: [CallbackQueryHandler(pantry_delivery, pattern='^' + str(TWO) + '$'),
                             CallbackQueryHandler(user_delivery, pattern='^' + str(ONE) + '$')],
             USER_ADDRESS: [MessageHandler(None, get_user_address)],
-            EMAIL: [MessageHandler(Filters.regex('@' + '.'), get_user_email)],
+            EMAIL: [MessageHandler(Filters.text & ~Filters.command, get_user_email)],
             PHONE: [MessageHandler(Filters.regex('[0-9]'), get_user_phone)],
             CALC: [CallbackQueryHandler(handle_callback_query)],
             WEIGHT: [MessageHandler(Filters.text & ~Filters.command, handle_weight)],
             VOLUME: [MessageHandler(Filters.text & ~Filters.command, handle_volume)],
             MONTHS: [MessageHandler(Filters.text & ~Filters.command, handle_months)],
+            FETCH: [CallbackQueryHandler(fetch)],
+            DELIVERY_TO: [CallbackQueryHandler(delivery_to_address)],
+            ADDRESS_TO: [MessageHandler(Filters.text & ~Filters.command, get_address_to)],
         },
         fallbacks=[MessageHandler(Filters.regex('@|.'), ask_again),
                    MessageHandler(Filters.command, handle_invalid_input)]
